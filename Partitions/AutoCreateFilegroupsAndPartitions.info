@@ -1,0 +1,91 @@
+Create one filegroup per time period (DAY, WEEK, MONTH, QUARTER, YEAR) 
+with one datafile in each filegroup.
+
+Then use these filegroups to add partitions (split)
+
+**VARIABLES:**
+1.  Database Name
+2.  Datafile Path
+3.  Period
+4.  Start Date
+5.  End Date
+6.  Filegroup name starting string
+7.  table name (to get partition function and scheme)
+
+to do: execution bit, debug bit
+
+declare
+@databaseName varchar(100) ='kuat',
+@datapath varchar(2000) = 'C:\Program Files\Microsoft SQL Server\MSSQL15.MSSQLSERVER\MSSQL\DATA\',
+@period varchar (50) = 'QUARTER',  -- DAY, WEEK, MONTH, QUARTER, YEAR
+@firstFilegroupDate  date ='2025-01-01',
+@lastFilegroupDate date ='2031-02-01',
+@tempDate datetime,
+@filegroupNameInit varchar(50)='PART',
+@filegroupName varchar(100),
+@fileName varchar(100),
+@sql nvarchar(3000)='',
+@debug bit =0,
+@execution bit=0,
+@fgNo int=0,
+@i int=0,
+@tableName varchar(200) ='CHARGES_RECORDING',
+@partitionFunction varchar (200),
+@partitionScheme varchar(200),
+@nextRange varchar,
+@maxBoundary varchar;
+BEGIN
+IF @period not in ('DAY', 'WEEK', 'MONTH', 'QUARTER', 'YEAR')
+BEGIN
+print 'Invalid Period'
+END
+else
+BEGIN 
+
+SELECT @maxBoundary=max(cast (rv.value as date)) ,@nextRange=dateadd(MONTH,1,cast (max(value) as date)),@partitionFunction=f.name,@partitionScheme=ps.name
+FROM sys.partitions p
+INNER JOIN sys.indexes i ON p.object_id = i.object_id AND p.index_id = i.index_id
+INNER JOIN sys.objects o ON p.object_id = o.object_id
+INNER JOIN sys.system_internals_allocation_units au ON p.partition_id = au.container_id
+INNER JOIN sys.partition_schemes ps ON ps.data_space_id = i.data_space_id
+INNER JOIN sys.partition_functions f ON f.function_id = ps.function_id
+INNER JOIN sys.destination_data_spaces dds ON dds.partition_scheme_id = ps.data_space_id AND dds.destination_id = p.partition_number
+LEFT OUTER JOIN sys.partition_range_values rv ON f.function_id = rv.function_id AND p.partition_number = rv.boundary_id
+WHERE o.name=@tablename
+group by f.name,ps.name;
+
+
+set @sql=N'select @fgNo= DATEDIFF('+@period+','''+cast(@firstFilegroupDate as varchar)+''','''+cast( @lastFilegroupDate as varchar)+''') ;';
+--print @sql;
+exec sp_executesql @sql, N'@fgNo int OUT',@fgNo out;
+--print @fgNo
+while @i<@fgNo
+BEGIN
+--print @i ;
+SELECT @tempdate = case
+when @period='QUARTER' then dateadd (qq,@i,@firstFilegroupDate)
+when @period='DAY' then dateadd (dd,@i,@firstFilegroupDate) 
+when @period='WEEK' then dateadd (ww,@i,@firstFilegroupDate)
+when @period='MONTH' then dateadd (mm,@i,@firstFilegroupDate)
+when @period='YEAR' then dateadd (yy,@i,@firstFilegroupDate)
+end ;
+--print @tempdate;
+select @filegroupName=@filegroupNameInit+
+case 
+when @period ='QUARTER' then cast (DATEPART(YEAR, @tempdate) as varchar) + 'Q'+cast (DATEPART(QUARTER, @tempdate) as varchar) 
+when @period ='DAY' then cast (DATEPART(YEAR, @tempdate) as varchar) + right('0'+cast (DATEPART(MONTH, @tempdate) as varchar),2) +right('0'+cast (DATEPART(DAY, @tempdate) as varchar),2)
+when @period='WEEK' then cast (DATEPART(YEAR, @tempdate) as varchar) +'W'+right('0'+cast (DATEPART(iso_week, @tempdate) as varchar),2)
+when @period='MONTH' then cast (DATEPART(YEAR, @tempdate) as varchar) +'M'+right('0'+cast (DATEPART(MONTH, @tempdate) as varchar),2)
+when @period='YEAR' then cast (DATEPART(YEAR, @tempdate) as varchar) 
+end;
+set @sql =  'ALTER DATABASE '+@databaseName+' ADD FILEGROUP '+@filegroupName;
+print @sql;
+set @sql =  'ALTER DATABASE '+@databaseName+' ADD FILE (NAME=N'''+@filegroupName+''',filename='''+@datapath+@databaseName+'_'+@filegroupName+'.ndf''' + ' , size=128MB, maxsize=unlimited,filegrowth=512MB) to filegroup '+@filegroupName;
+print @sql;
+select @sql = 'ALTER PARTITION SCHEME '+@partitionScheme +' NEXT USED '+ @filegroupName +' ;
+ALTER PARTITION FUNCTION '+@partitionFunction+'() SPLIT RANGE (N'''+cast (@tempdate as varchar)+''');';
+print @sql;
+set @i+=1;
+END;
+END;
+END;
