@@ -1,0 +1,146 @@
+/*
+
+Source:https://learn.microsoft.com/en-us/troubleshoot/azure/synapse-analytics/dedicated-sql/query-execution-performance/dsql-perf-cci-health
+
+Parameter name  	Required	Description
+@object_id	        Y	        object_id of the table to target
+@partition_number	Y	        partition_number from sys.partitions to target. If the table isn't partitioned, specify 1.
+
+Column name	                    Description
+rebuild_script	                Generated ALTER INDEX ALL ... REBUILD statement for the given table/partition. Non-partitioned heaps will return NULL.
+reorganize_script           	Generated ALTER INDEX ALL ... REORGANIZE statement for the given table/partition. Non-partitioned heaps will return NULL.
+partition_switch_script	        Applies only to partitioned tables; will be NULL if the table isn't partitioned or if an invalid partition number is specified. If the CCI was created with an ORDER clause, it will be rendered.
+
+
+*/
+
+CREATE FUNCTION dbo.fnMs_GenerateIndexMaintenanceScript (@object_id INT, @partition_number INT = 1)
+RETURNS TABLE
+AS
+RETURN(
+    WITH base_info AS (
+        SELECT
+            t.object_id
+            , SCHEMA_NAME(t.schema_id) AS [schema_name]
+            , t.name AS table_name
+            , i.index_type
+            , i.index_cols
+            , i.index_type_desc
+            , tdp.distribution_policy_desc
+            , c.name hash_distribution_column_name
+        FROM sys.tables t
+            JOIN (
+                SELECT
+                    i.object_id
+                    , i.index_id
+                    , MAX(i.type) AS index_type
+                    , MAX(CASE WHEN i.type = 5 AND ic.column_store_order_ordinal != 0 THEN ' ORDER ' ELSE '' END)
+                        + '(' + STRING_AGG(
+                        CASE
+                            WHEN i.type IN (1, 5) 
+                                AND (ic.key_ordinal != 0 OR ic.column_store_order_ordinal != 0)
+                                THEN c.name + CASE WHEN ic.is_descending_key = 1 THEN ' DESC' ELSE '' END
+                        END
+                        , ',') WITHIN GROUP(ORDER BY ic.column_store_order_ordinal, ic.key_ordinal) + ')' AS index_cols
+                    , MAX(i.type_desc)
+                        + CASE
+                            WHEN MAX(i.type) IN (1, 5) THEN ' INDEX'
+                            ELSE ''
+                        END COLLATE SQL_Latin1_General_CP1_CI_AS AS index_type_desc
+                FROM sys.indexes i
+                    JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+                    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+                WHERE i.index_id <= 1
+                GROUP BY i.object_id, i.index_id
+            ) AS i
+                ON t.object_id = i.object_id
+            JOIN sys.pdw_table_distribution_properties tdp ON t.object_id = tdp.object_id
+            LEFT JOIN sys.pdw_column_distribution_properties cdp ON t.object_id = cdp.object_id AND cdp.distribution_ordinal = 1
+            LEFT JOIN sys.columns c ON cdp.object_id = c.object_id AND cdp.column_id = c.column_id
+        WHERE t.object_id = @object_id
+    )
+    , param_data_type AS (
+        SELECT
+            pp.function_id
+            , typ.name AS data_type_name
+            , CAST(CASE
+                WHEN typ.collation_name IS NOT NULL THEN 1
+                WHEN typ.name LIKE '%date%' THEN 1
+                WHEN typ.name = 'uniqueidentifier' THEN 1
+                ELSE 0
+            END AS BIT) AS use_quotes_on_values_flag
+        FROM sys.partition_parameters pp
+            JOIN sys.types typ ON pp.user_type_id = typ.user_type_id
+    )
+    , boundary AS (
+        SELECT
+            t.object_id
+            , c.name AS partition_column_name
+            , pf.boundary_value_on_right
+            , prv.boundary_id
+            , prv.boundary_id + CASE WHEN pf.boundary_value_on_right = 1 THEN 1 ELSE 0 END AS [partition_number]
+            , CASE
+                WHEN pdt.use_quotes_on_values_flag = 1 THEN '''' + CAST(
+                    CASE pdt.data_type_name
+                        WHEN 'date' THEN CONVERT(char(10), prv.value, 120)
+                        WHEN 'smalldatetime' THEN CONVERT(VARCHAR, prv.value, 120)
+                        WHEN 'datetime' THEN CONVERT(VARCHAR, prv.value, 121)
+                        WHEN 'datetime2' THEN CONVERT(VARCHAR, prv.value, 121)
+                        ELSE prv.value
+                    END    
+                    AS VARCHAR(32)) + ''''
+                ELSE CAST(prv.value AS VARCHAR(32))
+            END AS boundary_value
+        FROM sys.tables t
+            JOIN sys.indexes i ON t.object_id = i.object_id AND i.index_id <= 1
+            JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id AND ic.partition_ordinal = 1
+            JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+            JOIN sys.partition_schemes ps ON i.data_space_id = ps.data_space_id
+            JOIN sys.partition_functions pf ON ps.function_id = pf.function_id
+            JOIN param_data_type pdt ON pf.function_id = pdt.function_id
+            JOIN sys.partition_range_values prv ON pf.function_id = prv.function_id
+        WHERE t.object_id = @object_id
+    )
+    , partition_clause AS (
+        SELECT
+            object_id
+            , COUNT(*) - 1 -- should always be the 2nd to last partition in stage table
+                + CASE WHEN MAX([partition_number]) = @partition_number THEN 1 ELSE 0 END -- except when last partition
+                AS [source_partition_number]
+            , 'WHERE ' + MAX(partition_column_name)
+                + CASE WHEN MAX(CAST(boundary_value_on_right AS TINYINT)) = 1 THEN 
+                    ' >= ' + MIN(CASE WHEN [partition_number] = @partition_number THEN boundary_value END)
+                    ELSE 
+                    ' <= ' + MAX(CASE WHEN [partition_number] = @partition_number THEN boundary_value END)
+                END
+                + ' AND ' + MAX(partition_column_name)
+                + CASE WHEN MAX(CAST(boundary_value_on_right AS TINYINT)) = 1 THEN 
+                    ' < ' + MAX(boundary_value)
+                    ELSE
+                    ' > ' + MIN(boundary_value)
+                END AS filter_clause
+            , ', PARTITION (' + MAX(partition_column_name) + ' RANGE ' 
+                + CASE WHEN MAX(CAST(boundary_value_on_right AS TINYINT)) = 1 THEN 'RIGHT' ELSE 'LEFT' END 
+                + ' FOR VALUES(' + STRING_AGG(boundary_value, ',') + '))' AS [partition_clause]
+        FROM boundary
+        WHERE [partition_number] BETWEEN @partition_number - 1 AND @partition_number + 1
+        GROUP BY object_id
+    )
+    SELECT
+        CASE WHEN index_type IN (1, 5) THEN 'ALTER INDEX ALL ON [' + [schema_name] + '].[' + [table_name] + '] REBUILD' 
+            + CASE WHEN partition_clause.[object_id] IS NOT NULL THEN ' PARTITION = ' + CAST(@partition_number AS VARCHAR(16)) ELSE '' END + ';' END AS [rebuild_script]
+        , CASE WHEN index_type IN (1, 5) THEN 'ALTER INDEX ALL ON [' + [schema_name] + '].[' + [table_name] + '] REORGANIZE' 
+            + CASE WHEN partition_clause.[object_id] IS NOT NULL THEN ' PARTITION = ' + CAST(@partition_number AS VARCHAR(16)) ELSE '' END
+            + CASE WHEN index_type = 5 THEN ' WITH (COMPRESS_ALL_ROW_GROUPS = ON)' ELSE '' END + ';' END AS [reorganize_script]
+        , 'CREATE TABLE [' + schema_name + '].[' + table_name + '_p' + CAST(@partition_number AS VARCHAR(16)) + '_tmp] WITH(' + index_type_desc + ISNULL(index_cols, '')
+            + ', DISTRIBUTION = ' + distribution_policy_desc + CASE WHEN distribution_policy_desc = 'HASH' THEN '(' + hash_distribution_column_name + ')' ELSE '' END
+            + partition_clause.partition_clause + ') AS SELECT * FROM [' + [schema_name] + '].[' + [table_name] + '] ' + filter_clause + CASE WHEN index_type = 5 AND index_cols IS NOT NULL THEN ' OPTION(MAXDOP 1)' ELSE '' END +  ';'
+            + ' ALTER TABLE [' + schema_name + '].[' + table_name + '_p' + CAST(@partition_number AS VARCHAR(16)) + '_tmp] SWITCH PARTITION ' + CAST(source_partition_number AS VARCHAR(16))
+            + ' TO [' + [schema_name] + '].[' + [table_name] + '] PARTITION ' + CAST(@partition_number AS VARCHAR(16))
+            + ' WITH (TRUNCATE_TARGET = ON);'
+            + ' DROP TABLE [' + schema_name + '].[' + table_name + '_p' + CAST(@partition_number AS VARCHAR(16)) + '_tmp];' AS [partition_switch_script]
+    FROM base_info
+        LEFT JOIN partition_clause
+            ON base_info.object_id = partition_clause.object_id
+);
+GO
