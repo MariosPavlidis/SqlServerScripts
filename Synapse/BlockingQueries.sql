@@ -1,8 +1,9 @@
+
 SELECT
-    TOP 500 waiting.request_id AS WaitingRequestId,
+    TOP 500 waiting.request_id AS WaitingRequestId,waiting.type as LockType,
     waiting.object_type AS LockRequestType,
     waiting.object_name AS ObjectLockRequestName,
-    waiting.request_time AS ObjectLockRequestTime,
+    waiting.request_time AS ObjectLockRequestTime,datediff (s,waiting.request_time,getdate()) secs_wait ,
     blocking.session_id AS BlockingSessionId,
     blocking.request_id AS BlockingRequestId
 FROM
