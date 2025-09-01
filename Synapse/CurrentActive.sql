@@ -3,7 +3,7 @@ SELECT
     r.status,                          -- Running, Queued, Suspended, Completed, Failed
     r.command,
     r.start_time,
-    DATEDIFF(SECOND, r.start_time, GETDATE()) AS elapsed_seconds,
+    total_elapsed_time/1000 AS elapsed_seconds,
     s.login_name,
     s.client_id,
     rc.name AS resource_class         -- Resource class determines slot usage
