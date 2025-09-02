@@ -1,18 +1,20 @@
 
 SELECT
-    TOP 500 waiting.request_id AS WaitingRequestId,waiting.type as LockType,
-    waiting.object_type AS LockRequestType,
-    waiting.object_name AS ObjectLockRequestName,
+    TOP 500 blocking.request_id AS BlockingRequestId,waiting.request_id AS WaitingRequestId,
+    blocking.session_id AS BlockingSessionId,   waiting.session_id waitingSession, 
+    waiting.type +' '+' Lock On '+waiting.object_type +' ' +waiting.object_name  as WaitResource,
     waiting.request_time AS ObjectLockRequestTime,datediff (s,waiting.request_time,getdate()) secs_wait ,
-    blocking.session_id AS BlockingSessionId,
-    blocking.request_id AS BlockingRequestId
+    s.login_name as BlockingLoginName,r.command as BlockingCommand,
+    rw.command as WaitingCommand
 FROM
     sys.dm_pdw_waits waiting
     INNER JOIN sys.dm_pdw_waits blocking
-    ON waiting.object_type = blocking.object_type
-    AND waiting.object_name = blocking.object_name
+    ON waiting.object_type = blocking.object_type     AND waiting.object_name = blocking.object_name
+    join sys.dm_pdw_exec_sessions s on s.session_id=blocking.session_id
+    join sys.dm_pdw_exec_requests r on r.session_id=blocking.session_id
+    join sys.dm_pdw_exec_requests rw on rw.session_id=waiting.session_id
 WHERE
     waiting.state = 'Queued'
     AND blocking.state = 'Granted'
 ORDER BY
-    ObjectLockRequestTime ASC;
+    secs_wait desc;
