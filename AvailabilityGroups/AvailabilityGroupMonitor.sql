@@ -12,7 +12,7 @@ ars.operational_state_desc, ars.synchronization_health_desc
 FROM sys.availability_groups ag 
 JOIN sys.availability_replicas ar on ag.group_id=ar.group_id 
 LEFT JOIN sys.dm_hadr_availability_replica_states ars ON ars.replica_id=ar.replica_id 
-WHERE ag.is_distributed=1;
+--WHERE ag.is_distributed=1;
 
 GO
 
@@ -22,8 +22,3 @@ FROM sys.dm_hadr_database_replica_states drs, sys.availability_groups ag
 WHERE drs.group_id = ag.group_id;
 
 GO
-
-&nbsp;
-
-When secondary AG is in state not synchronizing, then check if any restarts have occurred. Check errorlog for connection timeoutσ
-
