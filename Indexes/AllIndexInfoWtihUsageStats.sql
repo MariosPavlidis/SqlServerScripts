@@ -67,4 +67,10 @@ WHERE o.is_ms_shipped = 0
 GROUP BY
     sc.name, o.name, i.name, i.type_desc, i.is_unique, i.is_primary_key,
     i.has_filter, i.filter_definition, o.object_id, i.object_id, i.index_id
+    /* Use for unused indexes
+    having  COALESCE(MAX(u.user_seeks),   0)         =0 
+    and COALESCE(MAX(u.user_scans),   0)          =0
+    and COALESCE(MAX(u.user_lookups), 0)          =0
+    and COALESCE(MAX(u.user_updates), 0)          >0
+    */
 ORDER BY table_size_mb DESC, index_size_mb DESC, schema_name, table_name, index_name;
