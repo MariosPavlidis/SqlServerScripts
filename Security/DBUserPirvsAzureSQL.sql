@@ -1,103 +1,67 @@
+-- Run in a user database (not master)
 SET NOCOUNT ON;
 
 ;WITH DbUsers AS
 (
-    -- Target principals: real users (not roles)
     SELECT  dp.principal_id,
             dp.name       AS UserName,
-            dp.type_desc  AS UserTypeDesc
+            dp.type_desc  AS LoginTypeDesc
     FROM    sys.database_principals dp
-    WHERE   dp.type IN ('S','U','G','E','X','C')   -- SQL, contained, AAD, groups, etc.
+    WHERE   dp.type IN ('S','U','G','E','X','C')   -- SQL, contained, AAD, groups
     AND     dp.sid IS NOT NULL
-    AND     dp.name NOT LIKE '##%'                -- ignore internal
+    AND     dp.name NOT LIKE '##%'
 ),
-DbRoles AS
+DbRolesAgg AS
 (
-    SELECT  dp.principal_id,
-            dp.name AS RoleName
-    FROM    sys.database_principals dp
-    WHERE   dp.type = 'R'                         -- database roles
-),
-RoleMembers AS
-(
-    SELECT  drm.member_principal_id AS UserPrincipalId,
-            drm.role_principal_id   AS RolePrincipalId
+    SELECT  drm.member_principal_id,
+            STUFF((
+                SELECT  ',' + r.name
+                FROM    sys.database_role_members drm2
+                JOIN    sys.database_principals r
+                        ON r.principal_id = drm2.role_principal_id
+                WHERE   drm2.member_principal_id = drm.member_principal_id
+                FOR XML PATH(''), TYPE).value('.','NVARCHAR(MAX)')
+            ,1,1,'') AS DbRoles
     FROM    sys.database_role_members drm
+    GROUP BY drm.member_principal_id
 ),
-Perms AS
+DbPermsAgg AS
 (
-    SELECT  dp.class_desc,
-            dp.major_id,
-            dp.minor_id,
-            dp.grantee_principal_id,
-            dp.permission_name,
-            dp.state_desc
+    -- explicit perms granted directly to users (exclude role principals)
+    SELECT  dp.grantee_principal_id,
+            STUFF((
+                SELECT  '; ' +
+                        dp2.state_desc + ' ' + dp2.permission_name +
+                        ' ON ' + dp2.class_desc +
+                        ISNULL('::' +
+                            CASE dp2.class_desc
+                                WHEN 'DATABASE' THEN DB_NAME()
+                                WHEN 'SCHEMA'   THEN SCHEMA_NAME(dp2.major_id)
+                                WHEN 'OBJECT_OR_COLUMN' THEN
+                                    QUOTENAME(OBJECT_SCHEMA_NAME(dp2.major_id)) + '.' +
+                                    QUOTENAME(OBJECT_NAME(dp2.major_id))
+                                ELSE CONVERT(NVARCHAR(50), dp2.major_id)
+                            END
+                        ,'')
+                FROM    sys.database_permissions dp2
+                WHERE   dp2.grantee_principal_id = dp.grantee_principal_id
+                FOR XML PATH(''), TYPE).value('.','NVARCHAR(MAX)')
+            ,1,2,'') AS DbExplicitPerms
     FROM    sys.database_permissions dp
-),
-PermsExpanded AS
-(
-    -- Direct grants to users
-    SELECT  u.UserName,
-            u.UserTypeDesc,
-            'DIRECT'       AS PermissionSource,
-            CAST(NULL AS SYSNAME) AS RoleName,
-            p.state_desc,
-            p.permission_name,
-            p.class_desc,
-            p.major_id,
-            p.minor_id
-    FROM    Perms p
-    JOIN    DbUsers u
-            ON p.grantee_principal_id = u.principal_id
-
-    UNION ALL
-
-    -- Grants via roles (user -> role -> permission)
-    SELECT  u.UserName,
-            u.UserTypeDesc,
-            'ROLE'         AS PermissionSource,
-            r.RoleName,
-            p.state_desc,
-            p.permission_name,
-            p.class_desc,
-            p.major_id,
-            p.minor_id
-    FROM    Perms p
-    JOIN    RoleMembers rm
-            ON p.grantee_principal_id = rm.RolePrincipalId
-    JOIN    DbUsers u
-            ON rm.UserPrincipalId = u.principal_id
-    JOIN    DbRoles r
-            ON r.principal_id = rm.RolePrincipalId
+    JOIN    sys.database_principals gp
+            ON gp.principal_id = dp.grantee_principal_id
+    WHERE   gp.type <> 'R'   -- drop perms granted to roles
+    GROUP BY dp.grantee_principal_id
 )
-SELECT
-    pe.UserName,
-    pe.UserTypeDesc,
-    pe.PermissionSource,          -- DIRECT / ROLE
-    pe.RoleName,                  -- NULL for DIRECT
-    pe.state_desc,
-    pe.permission_name,
-    pe.class_desc,
-    CASE pe.class_desc
-         WHEN 'DATABASE' THEN DB_NAME()
-         WHEN 'SCHEMA'   THEN SCHEMA_NAME(pe.major_id)
-         WHEN 'OBJECT_OR_COLUMN' THEN
-             QUOTENAME(OBJECT_SCHEMA_NAME(pe.major_id)) + '.' +
-             QUOTENAME(OBJECT_NAME(pe.major_id))
-         ELSE NULL
-    END               AS SecuredObject,
-    CASE
-         WHEN pe.class_desc = 'OBJECT_OR_COLUMN'
-          AND pe.minor_id > 0 THEN COL_NAME(pe.major_id, pe.minor_id)
-         ELSE NULL
-    END               AS ColumnName,
-    pe.major_id,
-    pe.minor_id
-FROM    PermsExpanded pe
-ORDER BY
-    pe.UserName,
-    pe.PermissionSource,
-    pe.RoleName,
-    pe.class_desc,
-    pe.permission_name,
-    pe.state_desc;
+SELECT  du.UserName       AS LoginName,      -- connection identity in this DB
+        du.LoginTypeDesc,
+        DB_NAME()         AS DatabaseName,
+        du.UserName       AS UserName,
+        ISNULL(dra.DbRoles,         '') AS DbRoles,
+        ISNULL(dpa.DbExplicitPerms, '') AS DbExplicitPerms
+FROM    DbUsers du
+LEFT JOIN DbRolesAgg dra
+        ON dra.member_principal_id = du.principal_id
+LEFT JOIN DbPermsAgg dpa
+        ON dpa.grantee_principal_id = du.principal_id
+ORDER BY du.UserName;
