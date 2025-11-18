@@ -1,0 +1,10 @@
+let lookback = 30d;
+SynapseSqlPoolExecRequests
+| where StartTime > ago(lookback)
+| summarize
+    total = count(),
+    completed = countif(Status == "Completed"),
+    failed = countif(Status == "Failed"),
+    cancelled = countif(Status == "Canceled")
+  by day = startofday(StartTime)
+| order by day asc

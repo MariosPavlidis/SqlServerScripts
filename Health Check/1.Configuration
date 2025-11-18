@@ -1,0 +1,11 @@
+EXEC sp_configure;
+
+/*Check:
+
+max degree of parallelism
+cost threshold for parallelism	
+max server memory	75% of server memory 
+optimize for ad hoc workloads	 ON
+backup compression default	        ON	
+instant file initialization	
+*/
