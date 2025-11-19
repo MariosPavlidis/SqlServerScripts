@@ -1,6 +1,7 @@
 param(
     [string]$Path = (Get-Location).Path,
-    [int]$Top = 0    # 0 = full tree, >0 = top folders only
+    [int]$Top = 0,            # 0 = full list
+    [int]$Depth = 0           # 0 = infinite depth
 )
 
 function Format-Size {
@@ -13,34 +14,69 @@ function Format-Size {
     else                    { "$Bytes B" }
 }
 
-# Validate path
+# Validate root path
 if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
     Write-Error "Invalid path: $Path"
     exit 1
 }
 
 $root = (Get-Item -LiteralPath $Path).FullName
+$rootDepth = $root.Split([IO.Path]::DirectorySeparatorChar).Count
 
-# ------------------------------
-# Build size map for all folders
-# ------------------------------
-$sizeMap = @{}
-$sizeMap[$root] = 0
+# -------------------------------------------------------
+# Enumerate directories limited by depth
+# -------------------------------------------------------
 
-$allDirs = Get-ChildItem -Path $root -Directory -Recurse -ErrorAction SilentlyContinue
-foreach ($d in $allDirs) {
-    $sizeMap[$d.FullName] = 0
+function Get-Dirs-With-DepthLimit {
+    param([string]$Base)
+
+    if ($Depth -eq 0) {
+        # unlimited
+        return Get-ChildItem -Path $Base -Directory -Recurse -ErrorAction SilentlyContinue
+    }
+
+    return Get-ChildItem -Path $Base -Directory -Recurse -ErrorAction SilentlyContinue |
+        Where-Object {
+            ($_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count - $rootDepth) -le $Depth
+        }
 }
 
-# Sum file sizes into parent dirs
-Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue |
+# Build directory list with depth limit
+$allDirs = Get-Dirs-With-DepthLimit -Base $root
+
+# Init size map
+$sizeMap = @{}
+$sizeMap[$root] = 0
+foreach ($d in $allDirs) { $sizeMap[$d.FullName] = 0 }
+
+# -------------------------------------------------------
+# Add file sizes into each folder (also depth-limited)
+# -------------------------------------------------------
+
+function Get-Files-With-DepthLimit {
+    param([string]$Base)
+
+    if ($Depth -eq 0) {
+        return Get-ChildItem -Path $Base -Recurse -File -ErrorAction SilentlyContinue
+    }
+
+    return Get-ChildItem -Path $Base -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object {
+            ($_.DirectoryName.Split([IO.Path]::DirectorySeparatorChar).Count - $rootDepth) -le $Depth
+        }
+}
+
+Get-Files-With-DepthLimit -Base $root |
     ForEach-Object {
         $dir = $_.DirectoryName
         if (-not $sizeMap.ContainsKey($dir)) { $sizeMap[$dir] = 0 }
         $sizeMap[$dir] += $_.Length
     }
 
-# Bottom-up propagation
+# -------------------------------------------------------
+# Bottom-up size propagation
+# -------------------------------------------------------
+
 $dirsByDepthDesc = $sizeMap.Keys |
     Sort-Object { $_.Split([IO.Path]::DirectorySeparatorChar).Count } -Descending
 
@@ -51,9 +87,9 @@ foreach ($dir in $dirsByDepthDesc) {
     }
 }
 
-# ------------------------------
+# -------------------------------------------------------
 # TOP MODE
-# ------------------------------
+# -------------------------------------------------------
 if ($Top -gt 0) {
 
     $items = $sizeMap.GetEnumerator() |
@@ -62,21 +98,26 @@ if ($Top -gt 0) {
         Select-Object -First $Top
 
     foreach ($i in $items) {
-        $size = Format-Size $i.Value
-        Write-Host ("{0}  ({1})" -f $i.Key, $size)
+        $sizeStr = Format-Size $i.Value
+        Write-Host ("{0}  ({1})" -f $i.Key, $sizeStr)
     }
 
     exit 0
 }
 
-# ------------------------------
-# FULL TREE MODE
-# ------------------------------
+# -------------------------------------------------------
+# TREE MODE (depth-limited)
+# -------------------------------------------------------
+
 function Print-Tree {
     param(
         [string]$Path,
-        [string]$Prefix = ""
+        [string]$Prefix = "",
+        [int]$Level = 0
     )
+
+    # Stop if depth exceeded
+    if ($Depth -gt 0 -and $Level -ge $Depth) { return }
 
     $children = Get-ChildItem -LiteralPath $Path -Directory -ErrorAction SilentlyContinue |
                 Sort-Object Name
@@ -97,11 +138,11 @@ function Print-Tree {
         $sizeStr = Format-Size $sizeMap[$child.FullName]
         Write-Host ("{0}{1}{2} ({3})" -f $Prefix, $branch, $child.Name, $sizeStr)
 
-        Print-Tree -Path $child.FullName -Prefix $nextPrefix
+        Print-Tree -Path $child.FullName -Prefix $nextPrefix -Level ($Level + 1)
     }
 }
 
 # Print root + tree
 $rootSize = Format-Size $sizeMap[$root]
 Write-Host ("{0} ({1})" -f $root, $rootSize)
-Print-Tree -Path $root
+Print-Tree -Path $root -Level 0
