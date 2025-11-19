@@ -1,6 +1,6 @@
 param(
-    [string]$RootPath = (Get-Location).Path,
-    [int]$Top = 0     # 0 = show full tree
+    [string]$Path = (Get-Location).Path,
+    [int]$Top = 0    # 0 = full tree, >0 = top folders only
 )
 
 function Format-Size {
@@ -13,12 +13,13 @@ function Format-Size {
     else                    { "$Bytes B" }
 }
 
-if (-not (Test-Path -LiteralPath $RootPath -PathType Container)) {
-    Write-Error "Path '$RootPath' is not a directory."
+# Validate path
+if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+    Write-Error "Invalid path: $Path"
     exit 1
 }
 
-$root = (Get-Item -LiteralPath $RootPath).FullName
+$root = (Get-Item -LiteralPath $Path).FullName
 
 # ------------------------------
 # Build size map for all folders
@@ -27,9 +28,11 @@ $sizeMap = @{}
 $sizeMap[$root] = 0
 
 $allDirs = Get-ChildItem -Path $root -Directory -Recurse -ErrorAction SilentlyContinue
-foreach ($d in $allDirs) { $sizeMap[$d.FullName] = 0 }
+foreach ($d in $allDirs) {
+    $sizeMap[$d.FullName] = 0
+}
 
-# Add file sizes
+# Sum file sizes into parent dirs
 Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue |
     ForEach-Object {
         $dir = $_.DirectoryName
@@ -37,7 +40,7 @@ Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue |
         $sizeMap[$dir] += $_.Length
     }
 
-# Propagate sizes upwards
+# Bottom-up propagation
 $dirsByDepthDesc = $sizeMap.Keys |
     Sort-Object { $_.Split([IO.Path]::DirectorySeparatorChar).Count } -Descending
 
@@ -49,7 +52,7 @@ foreach ($dir in $dirsByDepthDesc) {
 }
 
 # ------------------------------
-# Show Top X mode
+# TOP MODE
 # ------------------------------
 if ($Top -gt 0) {
 
@@ -59,15 +62,15 @@ if ($Top -gt 0) {
         Select-Object -First $Top
 
     foreach ($i in $items) {
-        $s = Format-Size $i.Value
-        Write-Host ("{0}  ({1})" -f $i.Key, $s)
+        $size = Format-Size $i.Value
+        Write-Host ("{0}  ({1})" -f $i.Key, $size)
     }
 
     exit 0
 }
 
 # ------------------------------
-# Tree mode (full output)
+# FULL TREE MODE
 # ------------------------------
 function Print-Tree {
     param(
@@ -98,6 +101,7 @@ function Print-Tree {
     }
 }
 
+# Print root + tree
 $rootSize = Format-Size $sizeMap[$root]
 Write-Host ("{0} ({1})" -f $root, $rootSize)
 Print-Tree -Path $root
