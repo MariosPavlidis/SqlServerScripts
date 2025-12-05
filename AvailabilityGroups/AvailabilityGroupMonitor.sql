@@ -16,7 +16,7 @@ LEFT JOIN sys.dm_hadr_availability_replica_states ars ON ars.replica_id=ar.repli
 
 GO
 
-SELECT ag.name , drs.database_id , drs.group_id , drs.replica_id , 
+SELECT ag.name , db_name(drs.database_id) , drs.group_id , drs.replica_id , 
 drs.synchronization_state_desc , drs.end_of_log_lsn 
 FROM sys.dm_hadr_database_replica_states drs, sys.availability_groups ag 
 WHERE drs.group_id = ag.group_id;

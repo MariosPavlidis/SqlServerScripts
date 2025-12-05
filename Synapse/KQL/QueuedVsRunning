@@ -1,0 +1,4 @@
+SynapseSqlPoolExecRequests
+| where TimeGenerated > ago(1h)
+| summarize queued=countif(Status=="Suspended"), running=countif(Status=="Running")
+    by bin(TimeGenerated,5m)

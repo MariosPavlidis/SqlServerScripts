@@ -14,7 +14,7 @@ LEFT JOIN sys.database_role_members drm
     ON s.login_name = USER_NAME(drm.member_principal_id)
 LEFT JOIN sys.database_principals rc
     ON drm.role_principal_id = rc.principal_id
---WHERE --r.status NOT IN ('Completed','Failed','Cancelled') --and 
+WHERE --r.status NOT IN ('Completed','Failed','Cancelled') --and 
    --  r.command like 'UPDATE STATISTICS%' 
     -- or r.command like 'BuildReplicatedTableCache%'
 ORDER BY r.submit_time desc;

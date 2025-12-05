@@ -1,5 +1,5 @@
 /*Check if Backup/Restore is executing right now, duration, percentage and estimated completion time*/
-SELECT r.session_id,r.command,r.blocking_session_id,
+SELECT Db_name(r.database_id),r.session_id,r.command,r.blocking_session_id,
 CONVERT(NUMERIC(6,2),r.percent_complete) AS [Percent Complete],CONVERT(VARCHAR(20),
 DATEADD(ms,r.estimated_completion_time,GetDate()),20) AS [ETA Completion Time],
 CONVERT(NUMERIC(10,2),r.total_elapsed_time/1000.0/60.0) AS [Elapsed Min],
