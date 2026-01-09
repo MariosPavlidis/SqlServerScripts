@@ -1,0 +1,57 @@
+/*===========================================================
+  STEP 1: TABLE SELECTION (LIST OR FULL DATABASE)
+===========================================================*/
+IF OBJECT_ID('tempdb..#TableList') IS NOT NULL DROP TABLE #TableList;
+
+DECLARE @tables nvarchar(max) = NULL;   -- <== SET THIS
+                                        -- Example: 'dbo.TableA, dbo.TableB'
+                                        -- NULL or '' = full database
+
+DECLARE @CRLF nchar(2) = NCHAR(13) + NCHAR(10);
+
+CREATE TABLE #TableList
+(
+    schema_name sysname,
+    table_name  sysname
+);
+
+-------------------------------------------------------------------------------
+-- MODE A: FULL DATABASE
+-------------------------------------------------------------------------------
+IF @tables IS NULL OR LTRIM(RTRIM(@tables)) = ''
+BEGIN
+    INSERT INTO #TableList(schema_name, table_name)
+    SELECT
+        s.name AS schema_name,
+        t.name AS table_name
+    FROM sys.tables t
+    JOIN sys.schemas s
+      ON s.schema_id = t.schema_id
+    WHERE t.is_ms_shipped = 0;
+
+    PRINT 'Loaded full database table list.';
+END
+
+-------------------------------------------------------------------------------
+-- MODE B: TABLE LIST PROVIDED
+-------------------------------------------------------------------------------
+ELSE
+BEGIN
+    ;WITH Raw AS
+    (
+        SELECT LTRIM(RTRIM(value)) AS full_name
+        FROM STRING_SPLIT(@tables, ',')
+    )
+    INSERT INTO #TableList(schema_name, table_name)
+    SELECT
+        ISNULL(PARSENAME(full_name, 2), 'dbo') AS schema_name,
+        PARSENAME(full_name, 1)                AS table_name
+    FROM Raw;
+
+    PRINT 'Loaded explicit table list.';
+END;
+
+-------------------------------------------------------------------------------
+-- OUTPUT FOR VERIFICATION
+-------------------------------------------------------------------------------
+SELECT * FROM #TableList ORDER BY schema_name, table_name;

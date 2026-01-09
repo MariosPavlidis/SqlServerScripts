@@ -1,0 +1,4 @@
+select cast (starttime as  date),sum(datediff (s,starttime,endtime)) from commandlog 
+where commandtype ='ALTER_INDEX'
+--Command Types: ALTER_INDEX	BACKUP_DATABASE		UPDATE_STATISTICS		DBCC_CHECKDB	RESTORE_VERIFYONLY		BACKUP_LOG		BACKUP_DATABASE		xp_delete_file		xp_create_subdir
+group by cast (starttime as  date)

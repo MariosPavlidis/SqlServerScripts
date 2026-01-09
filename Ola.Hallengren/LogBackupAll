@@ -1,0 +1,12 @@
+USE DBA
+GO
+EXECUTE dbo.DatabaseBackup
+@Databases = 'ALL_DATABASES',
+@Directory = 'J:\Backups',
+@CleanupMode='BEFORE_BACKUP',
+@BackupType = 'LOG',
+@Compress = 'Y',
+@CleanupTime = 2,
+@LogToTable='Y',
+@Verify = 'Y',
+@Checksum = 'Y'

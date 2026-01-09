@@ -1,0 +1,21 @@
+select id,DatabaseName,SchemaName,ObjectName,IndexName,case indextype 
+when 1 then 'Clustered'
+when 2 then 'Non Clustered'
+end indexType, StatisticsName,case 
+when command like '%REBUILD%' then 'REBUILD' 
+when command like '%REORGANIZE%' then 'REORGANIZE'  
+else commandtype end as "CommandType",
+case
+when CommandType='UPDATE_STATISTICS' then 
+  'RowCount:' + ExtendedInfo.value('(/ExtendedInfo/RowCount/text())[1]', 'varchar(20)') +
+    ' , ModificationCounter:' + ExtendedInfo.value('(/ExtendedInfo/ModificationCounter/text())[1]', 'varchar(20)') 
+when CommandType='ALTER_INDEX'	 then   'PageCount:' + ExtendedInfo.value('(/ExtendedInfo/PageCount/text())[1]', 'varchar(20)') +'('+ cast (8*ExtendedInfo.value('(/ExtendedInfo/PageCount/text())[1]', 'bigint') as varchar)+'KB)'+
+    ' , Fragmentation:' + ExtendedInfo.value('(/ExtendedInfo/Fragmentation/text())[1]', 'varchar(20)') 
+else cast ( ExtendedInfo as varchar)
+	end as "ExtendedInfo",
+starttime,endtime,
+datediff (s,starttime,endtime) seconds ,command,errornumber,ErrorMessage,*
+from commandlog 
+where commandtype ='ALTER_INDEX'
+--Command Types: ALTER_INDEX	BACKUP_DATABASE		UPDATE_STATISTICS		DBCC_CHECKDB	RESTORE_VERIFYONLY		BACKUP_LOG		xp_delete_file		xp_create_subdir
+order by [seconds] desc

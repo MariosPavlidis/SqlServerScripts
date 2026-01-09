@@ -1,7 +1,7 @@
 SELECT DISTINCT DB_NAME(s.database_id) AS database_name,f.name, f.physical_name,type_desc,size *8.0/1024 as [Current MB],d.log_reuse_wait_desc,
-cast(growth as nvarchar) + case 
-when is_percent_growth=0 then ' MB'
-when is_percent_growth=1 then '%'
+case 
+when is_percent_growth=0 then cast(growth*8/1024 as nvarchar) +' MB'
+when is_percent_growth=1 then cast(growth as nvarchar) + '%'
 end growth,
 case  
 when f.max_size= -1 and growth>0 then 'Until disk full' 

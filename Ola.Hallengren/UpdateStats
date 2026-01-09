@@ -1,0 +1,11 @@
+USE DBA
+GO
+EXECUTE dbo.IndexOptimize
+@Databases = 'Intersport',
+@FragmentationLow = NULL,
+@FragmentationMedium = NULL,
+@FragmentationHigh = NULL,
+@UpdateStatistics = 'ALL',
+@OnlyModifiedStatistics='Y',
+@LogToTable = 'Y',
+@TimeLimit = 18000

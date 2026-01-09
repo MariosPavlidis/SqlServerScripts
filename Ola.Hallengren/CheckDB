@@ -1,0 +1,7 @@
+use DBA
+GO
+EXECUTE dbo.DatabaseIntegrityCheck
+@Databases = 'ALL_DATABASES',
+@CheckCommands = 'CHECKDB',
+@TimeLimit=3600,
+@LogToTable='Y'

@@ -27,7 +27,7 @@ LEFT OUTER JOIN msdb.dbo.backupset bus ON bus.database_name = sdb.name
 where type='L'
 and sdb.dbid<>2
 GROUP BY sdb.Name,type) L
-on d.databaseNAme=l.DatabaseName
+on d.databaseName=l.DatabaseName
 GO
 
 

@@ -1,0 +1,43 @@
+IF OBJECT_ID('tempdb..#ColMeta') IS NOT NULL DROP TABLE #ColMeta;
+
+CREATE TABLE #ColMeta
+(
+    schema_name   sysname,
+    table_name    sysname,
+    column_id     int,
+    column_name   sysname,
+    sql_type_name sysname,
+    is_nullable   bit,
+    is_identity   bit,
+    max_length    int,
+    precision     int,
+    scale         int
+);
+
+INSERT INTO #ColMeta(schema_name, table_name, column_id, column_name,
+                     sql_type_name, is_nullable, is_identity,
+                     max_length, precision, scale)
+SELECT
+    s.name,
+    t.name,
+    c.column_id,
+    c.name,
+    typ.name,
+    c.is_nullable,
+    ISNULL(ic.is_identity, 0),
+    c.max_length,
+    c.[precision],
+    c.scale
+FROM sys.tables t
+JOIN sys.schemas s ON s.schema_id = t.schema_id
+JOIN sys.columns c ON c.object_id = t.object_id
+JOIN sys.types   typ ON typ.user_type_id = c.user_type_id
+LEFT JOIN sys.identity_columns ic
+       ON ic.object_id = c.object_id
+      AND ic.column_id = c.column_id
+JOIN #TableList tl
+  ON tl.schema_name = s.name
+ AND tl.table_name  = t.name
+ORDER BY s.name, t.name, c.column_id;
+
+SELECT * FROM #ColMeta ORDER BY schema_name, table_name, column_id;

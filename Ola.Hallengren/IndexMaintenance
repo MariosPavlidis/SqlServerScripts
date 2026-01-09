@@ -1,0 +1,15 @@
+use DBA
+GO
+EXECUTE dbo.IndexOptimize
+@Databases = 'ALL_DATABASES',
+@LogToTable='Y',
+@FragmentationLevel1 = 5,
+@FragmentationLevel2 = 30,
+@FragmentationLow = NULL,
+@FragmentationMedium = 'INDEX_REORGANIZE',
+@FragmentationHigh = 'INDEX_REBUILD_ONLINE,INDEX_REBUILD_OFFLINE',
+@TimeLimit = 18000,
+@Indexes='ALL_INDEXES,-Intersport.dbo.INTERSPORT$Trans_Sales_Entry,
+-Intersport.dbo.INTERSPORT$Transaction Header,
+-Intersport.dbo.INTERSPORT$Trans_Infocode Entry'
+
