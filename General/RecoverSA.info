@@ -1,4 +1,4 @@
-1.  add -m parameter to startup parameters to start in single user mode.
+1.  add -m parameter to startup parameters to start in single user mode. or -f
 2.  restart
 3.  connect either through sqlcmd or SSMS (USE RUN AS ADMINISTRATOR either way)
 4.  Create the intended login or change sa password
