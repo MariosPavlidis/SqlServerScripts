@@ -1,7 +1,7 @@
 USE DBA
 GO
 EXECUTE dbo.IndexOptimize
-@Databases = 'Intersport',
+@Databases = 'xxxx',
 @FragmentationLow = NULL,
 @FragmentationMedium = NULL,
 @FragmentationHigh = NULL,
