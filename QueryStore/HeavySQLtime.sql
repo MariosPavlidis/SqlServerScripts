@@ -10,11 +10,13 @@ SELECT TOP (100)
        qt.query_sql_text,
        TRY_CONVERT(xml, p.query_plan)                       AS query_plan_xml,
        SUM(rs.count_executions)                             AS executions,
-       -- durations are in microseconds
-       SUM(rs.avg_duration) * 1.0          / 1000.0  AS avg_duration_ms,
+       -- durations are in microseconds; weighted average across intervals
+       SUM(rs.avg_duration * 1.0 * rs.count_executions)
+           / NULLIF(SUM(rs.count_executions), 0) / 1000.0   AS avg_duration_ms,
        MIN(rs.min_duration) * 1.0 / 1000.0                  AS min_duration_ms,
        MAX(rs.max_duration) * 1.0 / 1000.0                  AS max_duration_ms,
-       SUM(rs.avg_duration) * 1.0* NULLIF(SUM(rs.count_executions), 0)  / 1000.0                AS total_duration_ms,
+       SUM(rs.avg_duration * 1.0 * rs.count_executions)
+           / 1000.0                                          AS total_duration_ms,
        MAX(rs.last_execution_time)                          AS last_execution_time,
        MAX(rsi.end_time)                                    AS last_interval
 FROM   sys.query_store_runtime_stats           AS rs
