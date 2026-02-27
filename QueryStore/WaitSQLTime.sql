@@ -7,7 +7,9 @@
       qsqt.query_sql_text,
       qsws.wait_category_desc,
       SUM(qsws.total_query_wait_time_ms)      AS total_wait_ms,
-      AVG(qsws.avg_query_wait_time_ms)        AS avg_wait_ms,
+      -- weighted average using execution count from runtime_stats
+      SUM(qsws.total_query_wait_time_ms)
+          / NULLIF(SUM(qsrs.count_executions), 0) AS avg_wait_ms,
       MAX(qsws.max_query_wait_time_ms)        AS max_wait_ms,
       SUM(qsrs.count_executions)              AS total_executions,
       MIN(qsrsi.start_time)                   AS interval_start,
