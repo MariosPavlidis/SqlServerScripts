@@ -1,19 +1,25 @@
 /*
-  AllIndexInfoWtihUsageStats.sql
-  Extends AllIndexInfo.sql with usage statistics from sys.dm_db_index_usage_stats.
-  Shows seeks, scans, lookups and updates since the last SQL Server service restart.
+  AllIndexInfoWithUsageStatsAndFragmentation.sql
+  Extends AllIndexInfoWtihUsageStats.sql by adding physical fragmentation data
+  from sys.dm_db_index_physical_stats (LIMITED mode).
 
   DMVs used:
-    sys.dm_db_partition_stats    - row counts and page counts per partition
-    sys.dm_db_index_usage_stats  - usage counters reset on service restart
+    sys.dm_db_partition_stats          - row counts and page counts per partition
+    sys.dm_db_index_usage_stats        - usage counters reset on service restart
+    sys.dm_db_index_physical_stats     - physical fragmentation per partition (LIMITED mode)
 
-  Use this script to identify:
-    - Unused or underused indexes (high updates, zero reads)
-    - Indexes actively used for seeks vs. scans
-    - Table and index sizes
+  avg_fragmentation_pct is averaged across partitions per index.
+  Indexes on tables with fewer than 8 pages return NULL (SQL Server does not
+  track fragmentation below that threshold).
 
-  For fragmentation data see: AllIndexInfoWithUsageStatsAndFragmentation.sql
-  Note: slower than AllIndexInfo.sql due to dm_db_index_usage_stats join.
+  Fragmentation thresholds (standard guidance):
+    < 10%   - no action needed
+    10-30%  - consider ALTER INDEX ... REORGANIZE
+    > 30%   - consider ALTER INDEX ... REBUILD
+
+  Use this script when planning index maintenance.
+  For usage stats only (faster) see: AllIndexInfoWtihUsageStats.sql
+  Note: slowest of the three index scripts due to dm_db_index_physical_stats.
 */
 SELECT
     sc.name                                   AS schema_name,
@@ -39,6 +45,8 @@ SELECT
     SUM(s.used_page_count) * 8.0 / 1024                                 AS index_size_mb,
     SUM(SUM(s.used_page_count)) OVER (PARTITION BY o.object_id) * 8.0 / 1024 AS table_size_mb,
     COUNT(*) OVER (PARTITION BY o.object_id)                            AS index_count,
+    -- averaged across partitions; NULL for indexes smaller than 8 pages
+    AVG(ips.avg_fragmentation_in_percent)                               AS avg_fragmentation_pct,
 
     -- key columns
     STUFF((
@@ -75,6 +83,10 @@ LEFT JOIN sys.dm_db_index_usage_stats u
   ON u.database_id = DB_ID()
  AND u.object_id   = i.object_id
  AND u.index_id    = i.index_id
+LEFT JOIN sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, 'LIMITED') ips
+  ON ips.object_id        = s.object_id
+ AND ips.index_id         = s.index_id
+ AND ips.partition_number = s.partition_number
 JOIN sys.schemas sc
   ON sc.schema_id = o.schema_id
 WHERE o.is_ms_shipped = 0
@@ -83,10 +95,7 @@ WHERE o.is_ms_shipped = 0
 GROUP BY
     sc.name, o.name, i.name, i.type_desc, i.is_unique, i.is_primary_key,
     i.has_filter, i.filter_definition, o.object_id, i.object_id, i.index_id
-    /* Use for unused indexes
-    having  COALESCE(MAX(u.user_seeks),   0)         =0
-    and COALESCE(MAX(u.user_scans),   0)          =0
-    and COALESCE(MAX(u.user_lookups), 0)          =0
-    and COALESCE(MAX(u.user_updates), 0)          >0
+    /* Use for indexes needing maintenance
+    having AVG(ips.avg_fragmentation_in_percent) >= 10
     */
 ORDER BY table_size_mb DESC, index_size_mb DESC, schema_name, table_name, index_name;
