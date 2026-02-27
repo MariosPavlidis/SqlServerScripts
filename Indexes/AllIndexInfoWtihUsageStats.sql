@@ -1,4 +1,5 @@
-/* Extends indexes info with usage stats. It is slower than AllIndexInfo.sql*/
+/* Extends indexes info with usage stats and fragmentation (LIMITED mode).
+   Slower than AllIndexInfo.sql due to dm_db_index_usage_stats + dm_db_index_physical_stats. */
 SELECT
     sc.name                                   AS schema_name,
     o.name                                    AS table_name,
@@ -23,6 +24,7 @@ SELECT
     SUM(s.used_page_count) * 8.0 / 1024                                  AS index_size_mb,
     SUM(SUM(s.used_page_count)) OVER (PARTITION BY o.object_id) * 8.0 / 1024 AS table_size_mb,
     COUNT(*) OVER (PARTITION BY o.object_id)           AS index_count,
+    AVG(ips.avg_fragmentation_in_percent)              AS avg_fragmentation_pct,
 
     -- key columns
     STUFF((
@@ -59,6 +61,10 @@ LEFT JOIN sys.dm_db_index_usage_stats u
   ON u.database_id = DB_ID()
  AND u.object_id   = i.object_id
  AND u.index_id    = i.index_id
+LEFT JOIN sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, 'LIMITED') ips
+  ON ips.object_id       = s.object_id
+ AND ips.index_id        = s.index_id
+ AND ips.partition_number = s.partition_number
 JOIN sys.schemas sc
   ON sc.schema_id = o.schema_id
 WHERE o.is_ms_shipped = 0
