@@ -4,7 +4,10 @@
   SELECT
       qsws.wait_category_desc,
       SUM(qsws.total_query_wait_time_ms)  AS total_wait_ms,
-      AVG(qsws.avg_query_wait_time_ms)    AS avg_wait_ms,
+      -- weighted average: total wait / back-calculated execution count (total / avg per row)
+      SUM(qsws.total_query_wait_time_ms)
+          / NULLIF(SUM(qsws.total_query_wait_time_ms
+              / NULLIF(qsws.avg_query_wait_time_ms, 0)), 0) AS avg_wait_ms,
       COUNT(DISTINCT qsq.query_id)        AS distinct_queries_affected
   FROM sys.query_store_wait_stats             qsws
   JOIN sys.query_store_runtime_stats_interval qsrsi
