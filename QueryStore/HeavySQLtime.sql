@@ -1,5 +1,5 @@
-DECLARE @StartTime datetime2 = '2025-11-18T09:00:00';
-DECLARE @EndTime   datetime2 = '2025-11-18T10:00:00';
+ DECLARE @StartTime datetime2 = '2026-02-26 12:00:00';
+ DECLARE @EndTime   datetime2 = '2026-02-26 14:30:00';
 
 SELECT TOP (100)
        DB_NAME()                                            AS database_name,

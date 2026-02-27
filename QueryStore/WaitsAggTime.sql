@@ -1,3 +1,6 @@
+ DECLARE @StartTime datetime2 = '2026-02-26 12:30:00';
+ DECLARE @EndTime   datetime2 = '2026-02-26 13:30:00';
+
   SELECT
       qsws.wait_category_desc,
       SUM(qsws.total_query_wait_time_ms)  AS total_wait_ms,
