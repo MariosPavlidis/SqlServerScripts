@@ -31,7 +31,7 @@ GO
 
 SELECT  
 %%lockres%%, *  
-FROM Messages (NOLOCK)  
+FROM <Table from previous SQL> (NOLOCK)  
 WHERE %%lockres%% = '(292f8c74fa1d)';  
 GO
 

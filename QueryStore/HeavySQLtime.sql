@@ -37,4 +37,4 @@ GROUP BY
        p.query_plan,
        q.object_id
 ORDER BY
-       avg_duration_ms DESC;  -- change to min_duration_ms / max_duration_ms / total_duration_ms
+       avg_duration_ms DESC;  -- change to avg_duration_ms / min_duration_ms / max_duration_ms / total_duration_ms

@@ -1,11 +1,26 @@
-EXEC sp_configure;
+select * from sys.configurations
+where name in (
+'max degree of parallelism',
+'cost threshold for parallelism',	--50
+'min server memory (MB)',
+'max server memory (MB)', --	75% of server memory 
+'optimize for ad hoc workloads',
+'backup compression default','backup checksum default',
+'xp_cmdshell')
 
-/*Check:
+--LPIM
+SELECT sql_memory_model_desc
+FROM sys.dm_os_sys_info;
 
-max degree of parallelism
-cost threshold for parallelism	
-max server memory	75% of server memory 
-optimize for ad hoc workloads	 ON
-backup compression default	        ON	
-instant file initialization	
-*/
+--Instant File Initialization
+EXEC xp_readerrorlog 0, 1, N'Database Instant File Initialization';
+
+--Service Account
+SELECT 
+    servicename,
+    startup_type_desc,
+    status_desc,
+    service_account
+FROM sys.dm_server_services
+WHERE servicename LIKE 'SQL Server (%'
+   OR servicename = 'SQL Server (MSSQLSERVER)';
