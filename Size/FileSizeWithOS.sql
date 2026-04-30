@@ -10,8 +10,8 @@ when f.max_size=268435456 then '2 TB (or disk full!)'
 else cast (f.max_size*8.0/1024 as char ) end as [Max MBs],
 s.volume_mount_point + ' ('+
 s.logical_volume_name +')', s.file_system_type, s.total_bytes /1024/1024/1024 as [Total GBs], s.available_bytes /1024/1024/1024 as [Available GBs],
-round(((s.available_bytes*1.0)/s.total_bytes)*100,2) as percent_free, v.io_stall_read_ms,
-v.io_stall_write_ms
+round(((s.available_bytes*1.0)/s.total_bytes)*100,2) as percent_free, v.io_stall_read_ms/v.num_of_reads avg_read_wait_ms,
+v.io_stall_write_ms/v.num_of_reads avg_write_wait_ms
 FROM sys.master_files AS f join sys.databases d on d.database_id=f.database_id
 CROSS APPLY sys.dm_os_volume_stats(f.database_id, f.file_id) AS s
 CROSS APPLY sys.dm_io_virtual_file_stats (f.database_id,f.file_id) as v
