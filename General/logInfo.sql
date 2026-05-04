@@ -25,7 +25,7 @@ close dbs;
 deallocate dbs;
 
 select l.*, vlf.[VLF Count],vlf.[Active VLF],vlf.[Active VLF Size (MB)],vlf.[In-active VLF],vlf.[In-active VLF Size (MB)],case  when vlf.[VLF Count]>100 then 'Perhaps you should Shrink and recreate Log File' else 'VLF count is not dangerously high' end as 'VLF Status'
-from #loguse l join (SELECT [name], 
+from #logUse l join (SELECT [name], 
 COUNT(l.database_id) AS 'VLF Count',
 SUM(CAST(vlf_active AS INT)) AS 'Active VLF',
 SUM(vlf_active*vlf_size_mb) AS 'Active VLF Size (MB)',
