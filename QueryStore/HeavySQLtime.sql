@@ -1,7 +1,7 @@
  DECLARE @StartTime datetime2 = '2026-02-26 12:00:00';
  DECLARE @EndTime   datetime2 = '2026-02-26 14:30:00';
 
-SELECT TOP (100)
+SELECT TOP (20)
        DB_NAME()                                            AS database_name,
        OBJECT_SCHEMA_NAME(q.object_id, DB_ID())             AS schema_name,
        OBJECT_NAME(q.object_id, DB_ID())                    AS object_name,
@@ -37,4 +37,4 @@ GROUP BY
        p.query_plan,
        q.object_id
 ORDER BY
-       avg_duration_ms DESC;  -- change to avg_duration_ms / min_duration_ms / max_duration_ms / total_duration_ms
+       total_duration_ms DESC;  -- change to avg_duration_ms / min_duration_ms / max_duration_ms / total_duration_ms
