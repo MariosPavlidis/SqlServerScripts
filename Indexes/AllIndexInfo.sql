@@ -9,6 +9,7 @@ SELECT
     i.type_desc                              AS index_type,
     i.is_unique,
     i.is_primary_key,
+    i.is_disabled,
     CASE WHEN i.has_filter = 1 THEN i.filter_definition ELSE 'N/A' END AS filter_predicate,
     MAX(s.row_count)                          AS rows_per_index,
     MAX(MAX(s.row_count)) OVER (PARTITION BY o.object_id)              AS rows_per_table,
@@ -51,6 +52,6 @@ WHERE o.is_ms_shipped = 0
   AND o.type = 'U'
   AND i.is_hypothetical = 0
 GROUP BY
-    sc.name, o.name, i.name, i.type_desc, i.is_unique, i.is_primary_key,
+    sc.name, o.name, i.name, i.type_desc, is_disabled,i.is_unique, i.is_primary_key,
     i.has_filter, i.filter_definition, o.object_id, i.object_id, i.index_id
 ORDER BY table_size_mb DESC, index_size_mb DESC, schema_name, table_name, index_name;

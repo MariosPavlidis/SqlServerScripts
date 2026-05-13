@@ -22,6 +22,7 @@ SELECT
     i.type_desc                               AS index_type,
     i.is_unique,
     i.is_primary_key,
+    i.is_disabled,
     CASE WHEN i.has_filter = 1 THEN i.filter_definition ELSE 'N/A' END AS filter_predicate,
 
     -- usage since last service start
@@ -81,7 +82,7 @@ WHERE o.is_ms_shipped = 0
   AND o.type = 'U'
   AND i.is_hypothetical = 0
 GROUP BY
-    sc.name, o.name, i.name, i.type_desc, i.is_unique, i.is_primary_key,
+    sc.name, o.name, i.name, i.type_desc, i.is_unique,is_disabled, i.is_primary_key,
     i.has_filter, i.filter_definition, o.object_id, i.object_id, i.index_id
         having  COALESCE(MAX(u.user_seeks),   0)         =0
     and COALESCE(MAX(u.user_scans),   0)          =0

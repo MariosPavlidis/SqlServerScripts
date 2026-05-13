@@ -1,4 +1,5 @@
 /* Exec xp_ReadErrorLog  LogNumber, LogType, SearchItem1, StartDate, EndDate, SortOrder
+	
 
  LogNumber: It is the log number of the error log. You can see the lognumber in the above screenshot. Zero is always referred to as the current log file
  LogType: We can use this command to read both SQL Server error logs and agent logs
@@ -9,6 +10,8 @@
  StartDate and EndDate: We can filter the error log between StartDate and EndDate
  SortOrder: We can specify ASC (Ascending) or DSC (descending) for sorting purposes
 */
+EXEC sys.sp_enumerrorlogs;
+
 DECLARE @logFileType SMALLINT= 1;
 DECLARE @start DATETIME;
 DECLARE @end DATETIME;

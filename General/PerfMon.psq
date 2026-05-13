@@ -1,0 +1,301 @@
+#Requires -RunAsAdministrator
+<#
+.SYNOPSIS
+    Creates and starts a logman Data Collector Set capturing all key SQL Server
+    performance counters to a CSV file at a fully-qualified path you supply.
+
+.DESCRIPTION
+    Registers a named Data Collector Set via logman.exe covering:
+      - CPU (Processor, System)
+      - Memory (OS + SQL Buffer Manager, Memory Manager)
+      - Disk I/O (PhysicalDisk per volume)
+      - Network (Network Interface)
+      - SQL Statistics (Batch Requests, Compilations)
+      - SQL Locks & Latches
+      - SQL Databases (Log flush)
+      - SQL Transactions / TempDB
+      - SQL General Statistics
+
+    The output file path (including filename) is fully configurable.
+    Sample interval is configurable (default: 15 seconds).
+
+.PARAMETER CollectorName
+    Name of the Data Collector Set in PerfMon / logman.
+    Default: SqlPerfCollector
+
+.PARAMETER OutputFilePath
+    FULL path including filename and .csv extension.
+    Example: D:\PerfLogs\sql_host01_20240601.csv
+
+.PARAMETER SampleIntervalSeconds
+    How often (seconds) counters are sampled.
+    Default: 15
+
+.PARAMETER SqlInstanceName
+    SQL Server instance name as it appears in performance object names.
+    Use 'MSSQLSERVER' for the default instance (renders as 'SQL Server:...' in counters).
+    For a named instance, e.g. 'INST1', objects appear as 'MSSQL$INST1:...'.
+    Default: MSSQLSERVER
+
+.PARAMETER Action
+    What to do after creating the collector:
+      Create   - register only, do not start
+      Start    - register and start immediately
+      Stop     - stop a running collector
+      Delete   - stop and remove the collector
+    Default: Start
+
+.EXAMPLE
+    # Default instance, start immediately, 15s interval
+    .\New-SqlPerfCollector.ps1 `
+        -OutputFilePath "D:\PerfLogs\sql_host01.csv" `
+        -Action Start
+
+.EXAMPLE
+    # Named instance INST1, 30s interval, create only
+    .\New-SqlPerfCollector.ps1 `
+        -OutputFilePath "C:\Logs\perf\inst1_$(Get-Date -f yyyyMMdd).csv" `
+        -SqlInstanceName INST1 `
+        -SampleIntervalSeconds 30 `
+        -Action Create
+
+.EXAMPLE
+    # Stop and remove a previously created collector
+    .\New-SqlPerfCollector.ps1 -Action Delete
+
+.NOTES
+    Requires:  Windows, PowerShell 5.1+, Run as Administrator
+    Tested on: Windows Server 2019/2022, SQL Server 2016–2022
+#>
+
+[CmdletBinding(SupportsShouldProcess)]
+param (
+    [string]  $CollectorName        = 'SqlPerfCollector',
+    [string]  $OutputFilePath       = '',          # mandatory for Create/Start
+    [int]     $SampleIntervalSeconds = 15,
+    [string]  $SqlInstanceName      = 'MSSQLSERVER',
+    [ValidateSet('Create','Start','Stop','Delete')]
+    [string]  $Action               = 'Start'
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+# ---------------------------------------------------------------------------
+# Helper: run logman, surface errors clearly
+# ---------------------------------------------------------------------------
+function Invoke-Logman {
+    param([string[]]$ArgList)
+    Write-Verbose "logman $($ArgList -join ' ')"
+    $result = & logman.exe @ArgList 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        # Exit 0xC0000BF3 / -1073740813 means "already exists" on create — handle gracefully
+        if ($ArgList[0] -eq 'create' -and $LASTEXITCODE -eq -1073740813) {
+            Write-Warning "Collector '$CollectorName' already exists. Use -Action Delete first to recreate."
+            return
+        }
+        throw "logman exited $LASTEXITCODE:`n$result"
+    }
+    $result | Where-Object { $_ } | ForEach-Object { Write-Verbose $_ }
+}
+
+# ---------------------------------------------------------------------------
+# Build the SQL object prefix based on instance name
+# ---------------------------------------------------------------------------
+$sqlPrefix = if ($SqlInstanceName -eq 'MSSQLSERVER') {
+    'SQLServer'          # default instance: "SQLServer:Buffer Manager\..."
+} else {
+    "MSSQL`$$SqlInstanceName"   # named instance: "MSSQL$INST1:Buffer Manager\..."
+}
+
+# ---------------------------------------------------------------------------
+# Counter list
+# ---------------------------------------------------------------------------
+$counters = @(
+    # --- CPU ---
+    '\Processor(_Total)\% Processor Time',
+    '\Processor(_Total)\% Privileged Time',
+    '\Processor(_Total)\% User Time',
+    '\System\Processor Queue Length',
+    '\System\Context Switches/sec',
+
+    # --- Memory (OS) ---
+    '\Memory\Available MBytes',
+    '\Memory\Pages/sec',
+    '\Memory\Page Faults/sec',
+    '\Memory\Pool Nonpaged Bytes',
+
+    # --- Memory (SQL Buffer Manager) ---
+    "\$sqlPrefix`:Buffer Manager\Page life expectancy",
+    "\$sqlPrefix`:Buffer Manager\Buffer cache hit ratio",
+    "\$sqlPrefix`:Buffer Manager\Page reads/sec",
+    "\$sqlPrefix`:Buffer Manager\Page writes/sec",
+    "\$sqlPrefix`:Buffer Manager\Lazy writes/sec",
+    "\$sqlPrefix`:Buffer Manager\Checkpoint pages/sec",
+    "\$sqlPrefix`:Buffer Manager\Free pages",
+    "\$sqlPrefix`:Buffer Manager\Stolen Server Memory (KB)",
+
+    # --- Memory (SQL Memory Manager) ---
+    "\$sqlPrefix`:Memory Manager\Target Server Memory (KB)",
+    "\$sqlPrefix`:Memory Manager\Total Server Memory (KB)",
+    "\$sqlPrefix`:Memory Manager\Memory Grants Pending",
+    "\$sqlPrefix`:Memory Manager\Memory Grants Outstanding",
+    "\$sqlPrefix`:Memory Manager\SQL Cache Memory (KB)",
+    "\$sqlPrefix`:Memory Manager\Optimizer Memory (KB)",
+
+    # --- Disk I/O ---
+    '\PhysicalDisk(_Total)\Disk Reads/sec',
+    '\PhysicalDisk(_Total)\Disk Writes/sec',
+    '\PhysicalDisk(_Total)\Avg. Disk sec/Read',
+    '\PhysicalDisk(_Total)\Avg. Disk sec/Write',
+    '\PhysicalDisk(_Total)\Avg. Disk Queue Length',
+    '\PhysicalDisk(_Total)\Disk Bytes/sec',
+
+    # --- Network ---
+    '\Network Interface(*)\Bytes Total/sec',
+    '\Network Interface(*)\Packets Received Errors',
+    '\Network Interface(*)\Output Queue Length',
+
+    # --- SQL Statistics ---
+    "\$sqlPrefix`:SQL Statistics\Batch Requests/sec",
+    "\$sqlPrefix`:SQL Statistics\SQL Compilations/sec",
+    "\$sqlPrefix`:SQL Statistics\SQL Re-Compilations/sec",
+    "\$sqlPrefix`:SQL Statistics\Auto-Param Attempts/sec",
+    "\$sqlPrefix`:SQL Statistics\Failed Auto-Params/sec",
+
+    # --- SQL Locks ---
+    "\$sqlPrefix`:Locks(_Total)\Lock Waits/sec",
+    "\$sqlPrefix`:Locks(_Total)\Lock Wait Time (ms)",
+    "\$sqlPrefix`:Locks(_Total)\Number of Deadlocks/sec",
+    "\$sqlPrefix`:Locks(_Total)\Average Wait Time (ms)",
+
+    # --- SQL Latches ---
+    "\$sqlPrefix`:Latches\Latch Waits/sec",
+    "\$sqlPrefix`:Latches\Average Latch Wait Time (ms)",
+    "\$sqlPrefix`:Latches\Total Latch Wait Time (ms)",
+
+    # --- SQL Databases (all DBs wildcard) ---
+    "\$sqlPrefix`:Databases(*)\Log Flushes/sec",
+    "\$sqlPrefix`:Databases(*)\Log Flush Wait Time (ms)",
+    "\$sqlPrefix`:Databases(*)\Log Bytes Flushed/sec",
+    "\$sqlPrefix`:Databases(*)\Transactions/sec",
+    "\$sqlPrefix`:Databases(*)\Active Transactions",
+    "\$sqlPrefix`:Databases(*)\Data File(s) Size (KB)",
+    "\$sqlPrefix`:Databases(*)\Log File(s) Size (KB)",
+    "\$sqlPrefix`:Databases(*)\Log File(s) Used Size (KB)",
+
+    # --- SQL TempDB / Transactions ---
+    "\$sqlPrefix`:Transactions\Version Store Size (KB)",
+    "\$sqlPrefix`:Transactions\Version Generation rate (KB/s)",
+    "\$sqlPrefix`:Transactions\Version Cleanup rate (KB/s)",
+    "\$sqlPrefix`:Transactions\Free Space in tempdb (KB)",
+    "\$sqlPrefix`:Transactions\Longest Transaction Running Time",
+
+    # --- SQL General Statistics ---
+    "\$sqlPrefix`:General Statistics\User Connections",
+    "\$sqlPrefix`:General Statistics\Active Temp Tables",
+    "\$sqlPrefix`:General Statistics\Logins/sec",
+    "\$sqlPrefix`:General Statistics\Logouts/sec",
+    "\$sqlPrefix`:General Statistics\Processes blocked",
+
+    # --- SQL Plan Cache ---
+    "\$sqlPrefix`:Plan Cache(_Total)\Cache Hit Ratio",
+    "\$sqlPrefix`:Plan Cache(_Total)\Cache Object Counts",
+    "\$sqlPrefix`:Plan Cache(_Total)\Cache Pages"
+)
+
+# ---------------------------------------------------------------------------
+# Action: Stop
+# ---------------------------------------------------------------------------
+if ($Action -eq 'Stop') {
+    Write-Host "Stopping collector '$CollectorName'..." -ForegroundColor Yellow
+    Invoke-Logman @('stop', $CollectorName, '-ets')
+    Write-Host "Stopped." -ForegroundColor Green
+    return
+}
+
+# ---------------------------------------------------------------------------
+# Action: Delete
+# ---------------------------------------------------------------------------
+if ($Action -eq 'Delete') {
+    Write-Host "Stopping and deleting collector '$CollectorName'..." -ForegroundColor Yellow
+    & logman.exe stop   $CollectorName 2>&1 | Out-Null   # ignore if not running
+    Invoke-Logman @('delete', $CollectorName)
+    Write-Host "Deleted." -ForegroundColor Green
+    return
+}
+
+# ---------------------------------------------------------------------------
+# Validate output path for Create / Start
+# ---------------------------------------------------------------------------
+if ([string]::IsNullOrWhiteSpace($OutputFilePath)) {
+    throw "OutputFilePath is required for -Action Create or Start.`nExample: -OutputFilePath 'D:\PerfLogs\sql_host.csv'"
+}
+
+# Ensure the extension is .csv
+if ([System.IO.Path]::GetExtension($OutputFilePath) -ne '.csv') {
+    $OutputFilePath = [System.IO.Path]::ChangeExtension($OutputFilePath, '.csv')
+    Write-Warning "Extension changed to .csv -> $OutputFilePath"
+}
+
+# Create output directory if it doesn't exist
+$outputDir = [System.IO.Path]::GetDirectoryName($OutputFilePath)
+if (-not (Test-Path $outputDir)) {
+    if ($PSCmdlet.ShouldProcess($outputDir, 'Create directory')) {
+        New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+        Write-Host "Created output directory: $outputDir" -ForegroundColor Cyan
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Write counter list to a temp file (logman accepts -cf <file>)
+# ---------------------------------------------------------------------------
+$counterFile = [System.IO.Path]::GetTempFileName()
+$counters | Set-Content -Path $counterFile -Encoding UTF8
+Write-Verbose "Counter config written to: $counterFile"
+
+# ---------------------------------------------------------------------------
+# Action: Create
+# ---------------------------------------------------------------------------
+Write-Host "Creating Data Collector Set '$CollectorName'..." -ForegroundColor Cyan
+
+$logmanArgs = @(
+    'create', 'counter', $CollectorName,
+    '-cf',  $counterFile,          # counter list file
+    '-f',   'csv',                 # output format
+    '-o',   $OutputFilePath,       # output path
+    '-si',  $SampleIntervalSeconds, # sample interval (seconds)
+    '-v',   'mmddhhmm',            # version suffix on filename
+    '--'                           # no auto-start flag (we handle that separately)
+)
+
+# Remove the '--' placeholder; logman doesn't use it — just cleaner arg building
+$logmanArgs = $logmanArgs | Where-Object { $_ -ne '--' }
+
+if ($PSCmdlet.ShouldProcess($CollectorName, 'logman create counter')) {
+    Invoke-Logman $logmanArgs
+}
+
+Write-Host "  Output file : $OutputFilePath" -ForegroundColor Gray
+Write-Host "  Interval    : ${SampleIntervalSeconds}s" -ForegroundColor Gray
+Write-Host "  SQL prefix  : $sqlPrefix" -ForegroundColor Gray
+Write-Host "  Counters    : $($counters.Count)" -ForegroundColor Gray
+
+# ---------------------------------------------------------------------------
+# Action: Start (immediately after create)
+# ---------------------------------------------------------------------------
+if ($Action -eq 'Start') {
+    Write-Host "Starting collector '$CollectorName'..." -ForegroundColor Cyan
+    if ($PSCmdlet.ShouldProcess($CollectorName, 'logman start')) {
+        Invoke-Logman @('start', $CollectorName)
+    }
+    Write-Host "Collector is running. Use -Action Stop to halt it." -ForegroundColor Green
+}
+
+# Cleanup temp file
+Remove-Item $counterFile -Force -ErrorAction SilentlyContinue
+
+Write-Host "`nDone. Manage via:" -ForegroundColor White
+Write-Host "  Stop  : .\New-SqlPerfCollector.ps1 -CollectorName '$CollectorName' -Action Stop" -ForegroundColor DarkGray
+Write-Host "  Delete: .\New-SqlPerfCollector.ps1 -CollectorName '$CollectorName' -Action Delete" -ForegroundColor DarkGray
+Write-Host "  PerfMon GUI: perfmon.msc -> Data Collector Sets -> User Defined -> $CollectorName" -ForegroundColor DarkGray

@@ -71,3 +71,16 @@ SELECT
 FROM sys.configurations
 WHERE name IN ('max server memory (MB)', 'min server memory (MB)')
 ORDER BY name;
+
+select name,create_date,compatibility_level,collation_name,user_access_desc,state_desc,recovery_model_desc,log_reuse_wait_desc,
+is_encrypted,is_master_key_encrypted_by_server,is_cdc_enabled,
+containment_desc,delayed_durability_desc,is_memory_optimized_enabled
+page_verify_option_desc,is_query_store_on,
+is_read_only,is_auto_close_on,is_auto_shrink_on,
+is_accelerated_database_recovery_on,is_auto_create_stats_on,is_auto_update_stats_on,
+is_read_committed_snapshot_on,snapshot_isolation_state_desc
+from sys.databases
+
+
+	---errorlog files information
+EXEC sys.sp_enumerrorlogs;
