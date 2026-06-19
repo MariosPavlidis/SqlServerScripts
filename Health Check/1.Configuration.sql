@@ -1,3 +1,4 @@
+
 -- OS information
 SELECT
     windows_release,
@@ -7,14 +8,33 @@ SELECT
 FROM sys.dm_os_windows_info;
 
 
--- Version, edition, and patch information
+-- Instance information
 SELECT
+	SERVERPROPERTY('ServerName')   AS ServerName,
+	SERVERPROPERTY('InstanceName')   AS InstanceName,
+	SERVERPROPERTY('MachineName')   AS MachineName,
     SERVERPROPERTY('ProductVersion')   AS ProductVersion,
     SERVERPROPERTY('ProductLevel')     AS ProductLevel,
     SERVERPROPERTY('ProductUpdateLevel') AS CU,
     SERVERPROPERTY('Edition')          AS Edition,
     SERVERPROPERTY('EngineEdition')    AS EngineEdition,
+	SERVERPROPERTY('Collation')    AS Collation,
+	case SERVERPROPERTY('FilestreamEffectiveLevel') 
+	when 0 then 'disabeld' 
+	when 1 then 'enabled for Transact-SQL access' 
+	when 2 then 'enabled for Transact-SQL and local Win32 streaming access'   
+	when 3 then 'enabled for Transact-SQL and both local and remote Win32 streaming access'
+	end AS FilestreamEffectiveLevel,
+	case SERVERPROPERTY('IsHadrEnabled')   
+	when 0 then 'Disabled'
+	when 1 then 'Enabled'
+	end AS Hadr,
+	case SERVERPROPERTY('IsClustered') 
+	when 0 then 'Disabled'
+	when 1 then 'Enabled'
+	end  as isClustered,
     @@VERSION                          AS FullVersion;
+	
 
 select * from sys.configurations
 where name in (
@@ -28,6 +48,7 @@ where name in (
 
 
 select sqlserver_start_time from sys.dm_os_sys_info
+-------------------------------------------------------------------
 
 select physical_memory_kb/1024/1024 physical_memory_gb,
 virtual_memory_kb/1024/1024 virtual_memory_gb,

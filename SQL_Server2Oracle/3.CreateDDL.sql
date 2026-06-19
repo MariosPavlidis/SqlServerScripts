@@ -38,20 +38,30 @@ col_map AS
             WHEN 'real'             THEN 'BINARY_FLOAT'
 
             -- Character
-            WHEN 'char'             THEN 'CHAR('
-                                       + CAST(c.max_length AS VARCHAR) + ')'
-            WHEN 'varchar'          THEN
-                CASE WHEN c.max_length = -1
-                     THEN 'CLOB'
-                     ELSE 'VARCHAR2(' + CAST(c.max_length AS VARCHAR) + ')'
-                END
-            WHEN 'nchar'            THEN 'NCHAR('
-                                       + CAST(c.max_length / 2 AS VARCHAR) + ')'
-            WHEN 'nvarchar'         THEN
-                CASE WHEN c.max_length = -1
-                     THEN 'NCLOB'
-                     ELSE 'NVARCHAR2(' + CAST(c.max_length / 2 AS VARCHAR) + ')'
-                END
+           -- Character
+WHEN 'char' THEN
+    'CHAR(' + CAST(c.max_length AS VARCHAR(10)) + ' CHAR)'
+
+WHEN 'varchar' THEN
+    CASE
+        WHEN c.max_length = -1 THEN 'CLOB'
+        WHEN c.max_length <= 4000 THEN
+            'VARCHAR2(' + CAST(c.max_length AS VARCHAR(10)) + ' CHAR)'
+        ELSE
+            'CLOB'
+    END
+
+WHEN 'nchar' THEN
+    'NCHAR(' + CAST(c.max_length / 2 AS VARCHAR(10)) + ')'
+
+WHEN 'nvarchar' THEN
+    CASE
+        WHEN c.max_length = -1 THEN 'NCLOB'
+        WHEN c.max_length / 2 <= 4000 THEN
+            'NVARCHAR2(' + CAST(c.max_length / 2 AS VARCHAR(10)) + ')'
+        ELSE
+            'NCLOB'
+    END
             WHEN 'text'             THEN 'CLOB'
             WHEN 'ntext'            THEN 'NCLOB'
 
@@ -198,7 +208,7 @@ SELECT
     '-- ----------------------------------------' + CHAR(10)
     + '-- Source: ' + cb.schema_name + '.' + cb.table_name + CHAR(10)
     + '-- ----------------------------------------' + CHAR(10)
-    + 'CREATE TABLE ' + UPPER(cb.schema_name) + '.' + UPPER(cb.table_name) + CHAR(10)
+    + 'CREATE TABLE '  + UPPER(cb.table_name) + CHAR(10)
     + '(' + CHAR(10)
     + cb.columns_block
 

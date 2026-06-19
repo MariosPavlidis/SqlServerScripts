@@ -135,7 +135,7 @@ BEGIN
 
     INSERT INTO #TableSizes
     (database_name, schema_name, table_name, row_count, total_mb, used_mb, data_mb, index_mb)
-    SELECT
+    SELECT top (20)
         DB_NAME()                                                           AS database_name,
         s.name                                                              AS schema_name,
         t.name                                                              AS table_name,
@@ -174,7 +174,7 @@ DEALLOCATE db_cursor;
 -- ============================================================
 -- Final result: top 20 tables across all databases
 -- ============================================================
-SELECT TOP 20
+SELECT 
     database_name,
     schema_name,
     table_name,
